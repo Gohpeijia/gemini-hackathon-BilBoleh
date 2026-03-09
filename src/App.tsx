@@ -8,7 +8,9 @@ import {
   LayoutDashboard, 
   FileText, 
   Zap, 
-  Settings, 
+  Settings,
+  Sun,    
+  Moon,   
   Upload, 
   FileSearch, 
   CheckCircle2, 
@@ -40,8 +42,9 @@ import { onAuthStateChanged, User as FirebaseUser, signOut } from 'firebase/auth
 import { auth } from './firebase';
 import AuthPage from './components/AuthPage';
 
-// Initialize Gemini API
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+// 【修復 1 & 2】：正確初始化 Gemini API，並加上防呆機制防止白屏
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 interface InvoiceData {
   invoiceNumber: string;
@@ -88,7 +91,9 @@ export default function App() {
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [showConvertModal, setShowConvertModal] = useState(false);
-  const [buyerDetails, setBuyerDetails] = useState({ name: "", tin: "" });
+  const [buyerDetails, setBuyerDetails] = useState({ name: "", tin: "", ic: "" });
+  const [formErrors, setFormErrors] = useState({ tin: "", ic: "" });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [showSupportChat, setShowSupportChat] = useState(false);
   const [supportMessages, setSupportMessages] = useState<Array<{ role: 'user' | 'ai', text: string }>>([
@@ -107,6 +112,7 @@ export default function App() {
     { id: '3', date: '2024-03-06 09:00', invNo: 'INV-003', customer: 'Tan Ah Kow', amount: 85.50, tax: 5.13, uin: 'LHDN-77123-A', status: 'Cancelled' },
     { id: '4', date: '2024-03-05 11:20', invNo: 'INV-004', customer: 'Global Tech Solutions', amount: 12000.00, tax: 720.00, uin: 'LHDN-99001-B', status: 'Validated' },
     { id: '5', date: '2024-03-04 16:45', invNo: 'INV-005', customer: 'Fatimah Bakery', amount: 45.00, tax: 2.70, uin: '', status: 'RejectedByBuyer' },
+    { id: '6', date: '2024-03-08 10:00', invNo: 'INV-006', customer: 'Lim Ah Beng', amount: 500.00, tax: 30.00, uin: '', status: 'Pending' },
   ]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -157,7 +163,23 @@ export default function App() {
       resolutionCenter: "Resolution Center",
       editResubmit: "Edit & Resubmit",
       share: "Share",
-      cancelInv: "Cancel Invoice"
+      cancelInv: "Cancel Invoice",
+      allStatus: "All Status",
+      noData: "No data extracted yet",
+      merchantSync: "Merchant Auto-Sync",
+      consumerPortal: "Consumer QR Portal",
+      highValueCheck: "High-Value Check (>10k)",
+      finSummary: "Financial Summary",
+      total: "Total",
+      backendArch: "Backend Microservice Architecture",
+      cloudRun: "Cloud Run Optimized",
+      step1Title: "1. Creation",
+      step1Desc: "FastAPI receives raw data.",
+      step2Title: "2. Submission",
+      step2Desc: "Automated mapping to LHDN JSON.",
+      step3Title: "3. Validation",
+      step3Desc: "Real-time API clearance.",
+      pending: "Pending / Under Review"
     },
     ms: {
       dashboard: "Papan Pemuka",
@@ -203,7 +225,23 @@ export default function App() {
       resolutionCenter: "Pusat Resolusi",
       editResubmit: "Edit & Hantar Semula",
       share: "Kongsi",
-      cancelInv: "Batal Invois"
+      cancelInv: "Batal Invois",
+      allStatus: "Semua Status",
+      noData: "Tiada data diekstrak lagi",
+      merchantSync: "Penyegerakan Auto Peniaga",
+      consumerPortal: "Portal QR Pengguna",
+      highValueCheck: "Semakan Nilai Tinggi (>10k)",
+      finSummary: "Ringkasan Kewangan",
+      total: "Jumlah",
+      backendArch: "Seni Bina Perkhidmatan Mikro",
+      cloudRun: "Dioptimumkan untuk Cloud Run",
+      step1Title: "1. Penciptaan",
+      step1Desc: "FastAPI menerima data mentah.",
+      step2Title: "2. Penyerahan",
+      step2Desc: "Pemetaan automatik ke LHDN JSON.",
+      step3Title: "3. Pengesahan",
+      step3Desc: "Pelepasan API masa nyata.",
+      pending: "Menunggu / Dalam Semakan"
     },
     zh: {
       dashboard: "仪表板",
@@ -249,7 +287,23 @@ export default function App() {
       resolutionCenter: "解决中心",
       editResubmit: "编辑并重新提交",
       share: "分享",
-      cancelInv: "取消发票"
+      cancelInv: "取消发票",
+      allStatus: "所有状态",
+      noData: "尚未提取数据",
+      merchantSync: "商家自动同步",
+      consumerPortal: "消费者 QR 门户",
+      highValueCheck: "高价值检查 (>10k)",
+      finSummary: "财务摘要",
+      total: "总计",
+      backendArch: "后端微服务架构",
+      cloudRun: "Cloud Run 优化",
+      step1Title: "1. 创建",
+      step1Desc: "FastAPI 接收原始数据。",
+      step2Title: "2. 提交",
+      step2Desc: "自动映射到 LHDN JSON。",
+      step3Title: "3. 验证",
+      step3Desc: "实时 API 许可交互。",
+      pending: "待审核"
     }
   };
 
@@ -266,6 +320,15 @@ export default function App() {
   useEffect(() => {
     document.body.className = theme;
   }, [theme]);
+
+  useEffect(() => {
+    if (showConvertModal || showAiAssistant || showSupportChat) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => { document.body.style.overflow = 'unset'; };
+  }, [showConvertModal, showAiAssistant, showSupportChat]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -352,9 +415,15 @@ export default function App() {
     return text;
   };
 
-  const getAiAssistance = async () => {
+const getAiAssistance = async () => {
     if (!extractedData && !error) return;
     
+    if (!genAI) {
+        setAiAssistantMessage("Gemini API Key is missing! Please configure it in your .env file.");
+        setShowAiAssistant(true);
+        return;
+    }
+
     setIsAiThinking(true);
     setShowAiAssistant(true);
     setAiAssistantMessage(null);
@@ -363,33 +432,41 @@ export default function App() {
       let prompt = "";
       
       if (extractedData) {
-        prompt = `You are an expert AI Financial Analyst built into the BilBoleh application.
-        The user will provide you with a JSON object representing an e-invoice formatted for the Malaysian LHDN MyInvois API.
-        Your task is to analyze this specific invoice data and provide a rapid, actionable business insight for the SME owner.
-        Do not output code. Output your response as a short, easy-to-read summary with the following three bullet points:
+        prompt = `You are a friendly and helpful AI Assistant built into the BilBoleh application.
+        The user is a small business owner in Malaysia who might not have a strong financial background.
+        They will provide you with a JSON object representing an e-invoice.
+        Your task is to analyze this invoice and explain it in extremely simple, beginner-friendly terms.
+
+        DO NOT use complex financial jargon. Explain things as if you are talking to a friend running a local shop.
+        Use simple, short sentences. Use double line breaks between each point so it is very easy to read.
         
-        - Compliance Check: Point out if any critical fields (like Supplier TIN or Total Tax) seem to be missing or look suspiciously formatted, which might cause the LHDN API to reject it.
-        - Financial Summary: Briefly state the total cash outflow and the exact tax burden of this transaction.
-        - Business Insight: Look at the "items" array and provide one sentence summarizing what this business expense represents (e.g., "This appears to be a heavy stock restock for office supplies" or "This is a standard utility bill").
+        Please format your response strictly with these three simple sections:
         
-        Keep the tone professional, sharp, and highly relevant to a Malaysian business context.
+        ✅ LHDN Checking (Is this invoice safe?):
+        Check if important details like Supplier TIN or Tax amount are missing. Explain simply if LHDN might reject this or if it looks good to go.
+        
+        💰 Money Summary (How much are you spending?):
+        State clearly the total amount paid. Then, in a new sentence, state exactly how much of that is tax. 
+        
+        💡 Business Tip (What did you buy?):
+        Look at the items bought. Write one simple sentence summarizing what this expense is (for example: "It looks like you bought a lot of office supplies" or "This is a normal electricity bill").
         
         Payload: ${JSON.stringify(extractedData)}`;
       } else {
         prompt = `You are the official AI Support Assistant for BilBoleh. 
         The user encountered an error while processing an invoice: "${error}". 
         Explain why this might have happened and what the user can do to fix it (e.g., check if image is blurry, lighting is too dark, or API key is correct). 
-        Keep it short and supportive.`;
+        Keep it extremely simple, use short sentences, and be supportive.`;
       }
 
       const response = await genAI.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: prompt, 
       });
 
       setAiAssistantMessage(response.text || "I couldn't analyze the data at this moment.");
     } catch (err) {
-      setAiAssistantMessage("Sorry, I encountered an error while trying to help you.");
+      setAiAssistantMessage("Sorry, I encountered an error while trying to help you. Error: " + (err as Error).message);
     } finally {
       setIsAiThinking(false);
     }
@@ -404,23 +481,22 @@ export default function App() {
     setSupportInput("");
     setIsSupportThinking(true);
 
+    if (!genAI) {
+        setSupportMessages(prev => [...prev, { role: 'ai', text: "System Error: Gemini API Key is missing. Please add it to your .env file." }]);
+        setIsSupportThinking(false);
+        return;
+    }
+
     try {
       const response = await genAI.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: [
-          {
-            role: 'user',
-            parts: [{
-              text: `You are the official AI Support Assistant for BilBoleh, an e-invoicing web application designed to help Malaysian Small and Medium Enterprises (SMEs) comply with the LHDN MyInvois standard.
-              Your primary job is to help users troubleshoot technical issues, guide them through the app's features, and answer basic questions about Malaysian tax compliance.
-              Always be polite, concise, and highly supportive. You must be able to understand and respond naturally in both English and Bahasa Malaysia, including common local business terms.
-              If a user asks why their receipt failed to process, advise them to check if their image is blurry, if the lighting is too dark, or if their API key is correctly entered in the settings.
-              Do not provide legally binding financial advice. Keep your responses short and formatted for a small chat window.
-              
-              User Question: ${userMsg}`
-            }]
-          }
-        ],
+        contents: `You are the official AI Support Assistant for BilBoleh, an e-invoicing web application designed to help Malaysian Small and Medium Enterprises (SMEs) comply with the LHDN MyInvois standard.
+        Your primary job is to help users troubleshoot technical issues, guide them through the app's features, and answer basic questions about Malaysian tax compliance.
+        Always be polite, concise, and highly supportive. You must be able to understand and respond naturally in both English and Bahasa Malaysia, including common local business terms.
+        If a user asks why their receipt failed to process, advise them to check if their image is blurry, if the lighting is too dark, or if their API key is correctly entered in the settings.
+        Do not provide legally binding financial advice. Keep your responses short and formatted for a small chat window.
+        
+        User Question: ${userMsg}`
       });
 
       setSupportMessages(prev => [...prev, { role: 'ai', text: response.text || "I'm sorry, I couldn't process that." }]);
@@ -433,6 +509,11 @@ export default function App() {
 
   const processInvoice = async () => {
     if (!file || !preview) return;
+
+    if (!genAI) {
+        setError("Missing Gemini API Key. Please add VITE_GEMINI_API_KEY in your .env file and restart the server.");
+        return;
+    }
 
     setIsProcessing(true);
     setError(null);
@@ -449,7 +530,7 @@ export default function App() {
               {
                 text: `You are an expert Malaysian tax compliance assistant, specializing in the LHDN MyInvois standard.
                 Analyze the provided receipt/invoice image and extract all relevant data.
-                Crucially, format your output strictly as a valid JSON file. The JSON must match the precise LHDN MyInvois API schema, ensuring that key names are exact and hierarchy is maintained.
+                Crucially, format your output strictly as a valid JSON object. The JSON must match the precise LHDN MyInvois API schema, ensuring that key names are exact and hierarchy is maintained.
 
                 Required structure to generate for the LHDN MyInvois API:
                 {
@@ -503,12 +584,14 @@ export default function App() {
 
       const resultText = response.text;
       if (resultText) {
-        const parsedData = JSON.parse(resultText) as InvoiceData;
+        // 【修復 3】：安全地移除 Markdown 標籤以防止 JSON.parse 報錯
+        const cleanJson = resultText.replace(/```json\n?|```/g, '').trim();
+        const parsedData = JSON.parse(cleanJson) as InvoiceData;
         setExtractedData(parsedData);
       }
     } catch (err) {
       console.error("Error processing invoice:", err);
-      setError("Failed to process invoice. Please try again.");
+      setError("Failed to process invoice. Ensure the image is clear and your API key is correct.");
     } finally {
       setIsProcessing(false);
     }
@@ -524,12 +607,37 @@ export default function App() {
   });
 
   const stats = {
+    pending: invoices.filter(i => i.status === 'Pending').length,
     validated: invoices.filter(i => i.status === 'Validated').length,
     rejected: invoices.filter(i => i.status === 'Rejected').length,
     cancelled: invoices.filter(i => i.status === 'Cancelled').length,
     rejectedByBuyer: invoices.filter(i => i.status === 'RejectedByBuyer').length,
     totalSales: invoices.filter(i => i.status === 'Validated').reduce((acc, curr) => acc + curr.amount, 0),
     taxToRemit: invoices.filter(i => i.status === 'Validated').reduce((acc, curr) => acc + curr.tax, 0),
+  };
+
+  const handleConsumerSubmit = () => {
+    let valid = true;
+    let errors = { tin: "", ic: "" };
+
+    if (!buyerDetails.tin || buyerDetails.tin.length < 10) {
+      errors.tin = "TIN must be at least 10 characters.";
+      valid = false;
+    }
+    
+    if (!buyerDetails.ic || !/^\d{6}-?\d{2}-?\d{4}$|^\d{12}$/.test(buyerDetails.ic)) {
+      errors.ic = "Invalid IC format (e.g., 000000-00-0000).";
+      valid = false;
+    }
+
+    setFormErrors(errors);
+
+    if (valid) {
+      setShowConvertModal(false);
+      setToastMessage("✅ Request Submitted to LHDN!");
+      setTimeout(() => setToastMessage(null), 5000);
+      setBuyerDetails({ name: "", tin: "", ic: "" }); // 清空表单
+    }
   };
 
   const handleConvert = () => {
@@ -545,7 +653,7 @@ export default function App() {
   };
 
   return (
-    <div className={`flex h-screen w-full p-6 gap-6 overflow-hidden ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+    <div className={`flex h-screen w-full p-6 gap-6 overflow-hidden transition-colors duration-500 ${theme === 'dark' ? 'bg-[#050505] text-white' : 'bg-slate-50 text-slate-800'}`}>
       {/* Sidebar */}
       <motion.aside 
         initial={false}
@@ -611,19 +719,6 @@ export default function App() {
           </motion.div>
         )}
 
-        <div className="mt-auto">
-          <div className={`${theme === 'dark' ? 'bg-white/5' : 'bg-slate-900/5'} rounded-3xl p-4 flex items-center gap-3`}>
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center shrink-0 shadow-lg">
-              <User size={20} className="text-white" />
-            </div>
-            {!isSidebarCollapsed && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <p className={`text-xs ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>{t.welcome}</p>
-                <p className={`text-sm font-semibold ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>Amirul</p>
-              </motion.div>
-            )}
-          </div>
-        </div>
       </motion.aside>
 
       {/* Main Content */}
@@ -651,25 +746,17 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
-            <div className={`${theme === 'dark' ? 'neumorph-pill-dark' : 'neumorph-pill'} px-4 py-2 flex items-center gap-2`}>
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className={`text-xs font-medium ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>{t.system}</span>
-            </div>
-            
-            <div className={`${theme === 'dark' ? 'neumorph-pill-dark' : 'neumorph-pill'} flex items-center p-1 gap-1`}>
-              <button 
-                onClick={() => setTheme('light')}
-                className={`p-1.5 rounded-full transition-all ${theme === 'light' ? 'bg-white shadow-sm text-pink-500' : 'text-white/40'}`}
-              >
-                <Zap size={16} />
-              </button>
-              <button 
-                onClick={() => setTheme('dark')}
-                className={`p-1.5 rounded-full transition-all ${theme === 'dark' ? 'bg-slate-700 shadow-sm text-cyan-400' : 'text-slate-400'}`}
-              >
-                <Zap size={16} className="rotate-180" />
-              </button>
-            </div>
+          <button 
+            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+            className={`p-2.5 rounded-full transition-all duration-500 flex items-center justify-center relative overflow-hidden
+              ${theme === 'light' 
+                ? 'bg-[#f8fafc] shadow-[4px_4px_10px_#e2e8f0,-4px_-4px_10px_#ffffff] text-pink-500' // 亮色保持原本干净立体的风格
+                : 'bg-black/80 backdrop-blur-xl border border-white/20 shadow-[0_8px_16px_rgba(0,0,0,0.6),inset_0_2px_6px_rgba(255,255,255,0.3)] text-blue-300' // 暗色：黑色底 + 玻璃反光内阴影 (Bubble 效果)
+              }`}
+            title="Toggle Theme"
+          >
+            {theme === 'light' ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
 
             <select 
               value={language}
@@ -691,10 +778,24 @@ export default function App() {
               </div>
               <span className="text-xs font-bold hidden md:block">{user?.displayName || user?.email?.split('@')[0]}</span>
             </button>
+            <div className="flex items-center gap-2 pl-2">
+            {/* AI Support 按鈕 */}
+              <button 
+                onClick={() => setShowSupportChat(!showSupportChat)}
+                className={`p-2 rounded-full transition-colors relative
+                  ${showSupportChat ? 'bg-pink-500 text-white shadow-lg glow-pink' : (theme === 'dark' ? 'hover:bg-white/5 text-white/60' : 'hover:bg-slate-900/5 text-slate-600')}`}
+                title="AI Support"
+              >
+                <MessageSquare size={20} />
+                {!showSupportChat && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-pink-500 rounded-full animate-pulse" />}
+              </button>
 
-            <button className={`p-2 ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-slate-900/5'} rounded-full transition-colors ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>
-              <Settings size={20} />
-            </button>
+              {/* Settings 按鈕 */}
+              <button className={`p-2 ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-slate-900/5'} rounded-full transition-colors ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>
+                <Settings size={20} />
+              </button>
+              
+            </div>
           </div>
         </motion.header>
 
@@ -846,31 +947,29 @@ export default function App() {
                     ) : error ? (
                       <div className="h-full flex flex-col items-center justify-center gap-4 text-red-400">
                         <FileSearch size={48} />
-                        <p>{error}</p>
+                        <p className="text-center">{error}</p>
                       </div>
                     ) : (
                       <div className="h-full flex flex-col items-center justify-center gap-4 text-slate-300">
                         <FileSearch size={48} />
-                        <p>No data extracted yet</p>
+                        <p>{t.noData}</p>
                       </div>
                     )}
                   </AnimatePresence>
                 </div>
 
-                <div className="flex gap-4 relative z-10">
-                  <button 
-                    onClick={() => setShowConvertModal(true)}
-                    className={`flex-1 py-4 ${theme === 'dark' ? 'glass-dark' : 'glass'} rounded-2xl text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-700'} hover:bg-emerald-500 hover:text-white transition-all glow-emerald`}
-                  >
-                    {t.convert}
-                  </button>
-                  <button className={`flex-1 py-4 ${theme === 'dark' ? 'glass-dark' : 'glass'} rounded-2xl text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-700'} hover:bg-blue-500 hover:text-white transition-all glow-blue`}>
-                    {t.submit}
-                  </button>
-                  <button className={`flex-1 py-4 ${theme === 'dark' ? 'glass-dark' : 'glass'} rounded-2xl text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-700'} hover:bg-purple-500 hover:text-white transition-all`}>
-                    {t.download}
-                  </button>
-                </div>
+                  {/* 3 Core Buttons */}
+                  <div className="flex gap-4 relative z-10">
+                    <button onClick={() => { setToastMessage("🏪 Merchant Auto-Sync: Sent to LHDN!"); setTimeout(() => setToastMessage(null), 5000); }} className={`flex-1 py-3 ${theme === 'dark' ? 'glass-dark' : 'glass'} rounded-2xl text-xs font-bold hover:bg-blue-500 hover:text-white transition-all glow-blue flex flex-col items-center justify-center gap-2`}>
+                      <Upload size={20} /><span className="text-center">{t.merchantSync}</span>
+                    </button>
+                    <button onClick={() => setShowConvertModal(true)} className={`flex-1 py-3 ${theme === 'dark' ? 'glass-dark' : 'glass'} rounded-2xl text-xs font-bold hover:bg-emerald-500 hover:text-white transition-all glow-emerald flex flex-col items-center justify-center gap-2`}>
+                      <User size={20} /><span className="text-center">{t.consumerPortal}</span>
+                    </button>
+                    <button onClick={() => { const total = extractedData?.totalPayable || 0; setToastMessage(total > 10000 ? `🚨 HIGH VALUE (RM ${total}): Mandatory e-Invoice!` : `✅ Normal Transaction (RM ${total})`); setTimeout(() => setToastMessage(null), 5000); }} className={`flex-1 py-3 ${theme === 'dark' ? 'glass-dark' : 'glass'} rounded-2xl text-xs font-bold hover:bg-purple-500 hover:text-white transition-all glow-pink flex flex-col items-center justify-center gap-2`}>
+                      <AlertCircle size={20} /><span className="text-center">{t.highValueCheck}</span>
+                    </button>
+                  </div>
 
                 {/* AI Assistant Trigger */}
                 {(extractedData || error) && (
@@ -899,11 +998,12 @@ export default function App() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="flex-1 flex flex-col gap-6 overflow-hidden"
+              className="flex-1 flex flex-col gap-6 overflow-y-auto pb-10 pr-2 custom-scrollbar"
             >
               {/* Summary Cards */}
-              <div className="grid grid-cols-4 gap-6">
+              <div className="grid grid-cols-5 gap-6">
                 {[
+                  { label: t.pending, value: stats.pending, color: 'amber', icon: <Clock size={24} /> },
                   { label: t.validated, value: stats.validated, color: 'emerald', icon: <CheckCircle2 size={24} /> },
                   { label: t.rejected, value: stats.rejected, color: 'rose', icon: <AlertCircle size={24} /> },
                   { label: t.cancelled, value: stats.cancelled, color: 'slate', icon: <Ban size={24} /> },
@@ -931,9 +1031,9 @@ export default function App() {
               </div>
 
               {/* Main Dashboard Grid */}
-              <div className="flex-1 grid grid-cols-3 gap-6 overflow-hidden">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Invoice Log */}
-                <div className={`col-span-2 ${theme === 'dark' ? 'glass-dark' : 'glass'} squircle p-8 flex flex-col gap-6 shadow-2xl overflow-hidden border border-white/10`}>
+                <div className={`col-span-2 ${theme === 'dark' ? 'glass-dark' : 'glass'} squircle p-8 flex flex-col gap-6 shadow-2xl border border-white/10`}>
                   <div className="flex items-center justify-between">
                     <h2 className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{t.invoiceLog}</h2>
                     <div className="flex gap-3">
@@ -950,21 +1050,22 @@ export default function App() {
                       <div className={`relative ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-900/5'} rounded-xl border border-white/10 flex items-center px-4`}>
                         <Filter size={16} className="text-slate-400" />
                         <select 
-                          value={statusFilter}
-                          onChange={(e) => setStatusFilter(e.target.value)}
-                          className="bg-transparent border-none outline-none p-2 text-xs appearance-none cursor-pointer"
-                        >
-                          <option value="All">All Status</option>
-                          <option value="Validated">Validated</option>
-                          <option value="Rejected">Rejected</option>
-                          <option value="Cancelled">Cancelled</option>
-                          <option value="RejectedByBuyer">Rejected by Buyer</option>
-                        </select>
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="bg-transparent border-none outline-none p-2 text-xs appearance-none cursor-pointer"
+                          >
+                            <option value="All">{t.allStatus}</option>
+                            <option value="Pending" className="bg-slate-900">{t.pending}</option>
+                            <option value="Validated">{t.validated}</option>
+                            <option value="Rejected">{t.rejected}</option>
+                            <option value="Cancelled">{t.cancelled}</option>
+                            <option value="RejectedByBuyer">{t.rejectedByBuyer}</option>
+                          </select>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-auto">
+                  <div className="w-full">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} border-b border-white/10`}>
@@ -992,15 +1093,20 @@ export default function App() {
                               <p className="text-[10px] opacity-40">Tax: {inv.tax.toFixed(2)}</p>
                             </td>
                             <td className="py-4 text-xs">
-                              <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider
-                                ${inv.status === 'Validated' ? 'bg-emerald-500/10 text-emerald-500' : 
-                                  inv.status === 'Rejected' ? 'bg-rose-500/10 text-rose-500' : 
-                                  inv.status === 'Cancelled' ? 'bg-slate-500/10 text-slate-500' : 
-                                  'bg-orange-500/10 text-orange-500'}`}
-                              >
-                                {inv.status}
-                              </span>
-                            </td>
+                                <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider
+                                  ${inv.status === 'Validated' ? 'bg-emerald-500/10 text-emerald-500' : 
+                                    inv.status === 'Rejected' ? 'bg-rose-500/10 text-rose-500' : 
+                                    inv.status === 'Cancelled' ? 'bg-slate-500/10 text-slate-500' : 
+                                    inv.status === 'Pending' ? 'bg-amber-500/10 text-amber-500' :
+                                    'bg-orange-500/10 text-orange-500'}`}
+                                >
+                                  {inv.status === 'Validated' ? t.validated : 
+                                  inv.status === 'Pending' ? t.pending :
+                                  inv.status === 'Rejected' ? t.rejected : 
+                                  inv.status === 'Cancelled' ? t.cancelled : 
+                                  t.rejectedByBuyer}
+                                </span>
+                              </td>
                             <td className="py-4 text-right">
                               <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button className="p-2 rounded-lg hover:bg-pink-500 hover:text-white transition-all" title={t.share}><Share2 size={14} /></button>
@@ -1019,25 +1125,10 @@ export default function App() {
 
                 {/* Sidebar Stats & Resolution */}
                 <div className="flex flex-col gap-6">
-                  {/* Financial Summary */}
-                  <div className={`${theme === 'dark' ? 'glass-dark' : 'glass'} squircle p-6 border border-white/10 shadow-xl flex flex-col gap-4`}>
-                    <h4 className={`text-xs font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>Financial Summary</h4>
-                    <div className="space-y-4">
-                      <div className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-900/5'} border border-white/10`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t.totalSales}</p>
-                          <ArrowUpRight size={14} className="text-emerald-500" />
-                        </div>
-                        <p className="text-xl font-black">MYR {stats.totalSales.toLocaleString()}</p>
-                      </div>
-                      <div className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-900/5'} border border-white/10`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t.taxToRemit}</p>
-                          <ArrowDownRight size={14} className="text-rose-500" />
-                        </div>
-                        <p className="text-xl font-black">MYR {stats.taxToRemit.toLocaleString()}</p>
-                      </div>
-                    </div>
+                  <div className={`${theme === 'dark' ? 'glass-dark' : 'glass'} squircle p-6 border border-white/10 shadow-xl`}>
+                    <h4 className="text-xs font-bold uppercase text-slate-500 mb-4">{t.finSummary}</h4>
+                    <p className="text-xl font-black mb-2">{t.total}: MYR {stats.totalSales.toLocaleString()}</p>
+                    <p className="text-xl font-black text-rose-400">{t.tax}: MYR {stats.taxToRemit.toLocaleString()}</p>
                   </div>
 
                   {/* Resolution Center */}
@@ -1073,66 +1164,22 @@ export default function App() {
               </div>
             </motion.div>
           ) : (
-            <motion.div 
-              key="architecture"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className={`flex-1 ${theme === 'dark' ? 'glass-dark' : 'glass'} squircle p-8 flex flex-col gap-6 overflow-hidden shadow-2xl`}
-            >
-              <div className="flex items-center justify-between">
-                <h2 className={`text-2xl font-bold ${theme === 'dark' ? 'text-pink-400' : 'text-slate-900'}`}>Backend Microservice Architecture</h2>
+            <motion.div key="architecture" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className={`flex-1 ${theme === 'dark' ? 'glass-dark' : 'glass'} squircle p-8 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10 shadow-2xl`}>
+              <div className="flex items-center justify-between shrink-0">
+                <h2 className="text-2xl font-bold text-pink-400">{t.backendArch}</h2>
                 <div className={`${theme === 'dark' ? 'neumorph-pill-dark' : 'neumorph-pill'} px-4 py-2 flex items-center gap-2`}>
                   <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className={`text-xs font-mono ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>Cloud Run Optimized</span>
+                  <span className={`text-xs font-mono ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>{t.cloudRun}</span>
                 </div>
               </div>
-
-              <div className="grid grid-cols-3 gap-6">
-                {[
-                  { title: "1. Creation", desc: "FastAPI endpoint receives raw transaction data with Pydantic validation." },
-                  { title: "2. Submission", desc: "Automated mapping to LHDN MyInvois JSON Schema with PKI Digital Signature." },
-                  { title: "3. Validation", desc: "Real-time interaction with LHDN Sandbox/Production APIs for document clearance." }
-                ].map((item, i) => (
-                  <div key={i} className={`${theme === 'dark' ? 'bg-white/5' : 'bg-slate-900/5'} p-6 rounded-[2rem] border border-white/10 shadow-sm`}>
-                    <h3 className="text-pink-500 font-bold mb-2">{item.title}</h3>
-                    <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'} leading-relaxed`}>{item.desc}</p>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
+                {[{ title: t.step1Title, desc: t.step1Desc }, { title: t.step2Title, desc: t.step2Desc }, { title: t.step3Title, desc: t.step3Desc }].map((item, i) => (
+                  <div key={i} className="p-6 rounded-[2rem] border border-white/10 bg-white/5"><h3 className="text-pink-500 font-bold mb-2">{item.title}</h3><p className="text-xs text-white/60">{item.desc}</p></div>
                 ))}
-              </div>
-
-              <div className={`flex-1 ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-900/5'} rounded-[2rem] p-8 overflow-auto border border-white/10`}>
-                <h4 className={`text-sm font-bold ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} uppercase tracking-widest mb-4`}>Deployment Guide: Google Secret Manager</h4>
-                <div className="space-y-4 text-sm">
-                  {[
-                    { step: "Step 1: Store Secrets", code: "gcloud secrets create LHDN_CLIENT_ID --replication-policy=\"automatic\"" },
-                    { step: "Step 2: Grant Access", desc: "Assign 'Secret Manager Secret Accessor' role to the Cloud Run service account." },
-                    { step: "Step 3: Mount in Cloud Run", desc: "Configure Cloud Run to expose secrets as environment variables at runtime." }
-                  ].map((item, i) => (
-                    <div key={i} className={`${theme === 'dark' ? 'glass-dark' : 'glass'} rounded-2xl p-4 border border-white/10`}>
-                      <p className="font-bold text-pink-500 mb-1">{item.step}</p>
-                      {item.code ? (
-                        <code className={`text-xs ${theme === 'dark' ? 'bg-black/30' : 'bg-slate-900/5'} p-2 block rounded-lg mt-2 font-mono`}>{item.code}</code>
-                      ) : (
-                        <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>{item.desc}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
-
-        {/* Support Chat Bubble */}
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setShowSupportChat(!showSupportChat)}
-          className={`fixed bottom-10 right-10 w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 shadow-2xl flex items-center justify-center text-white z-[60] glow-pink border-2 border-white/20`}
-        >
-          {showSupportChat ? <X size={28} /> : <MessageSquare size={28} />}
-        </motion.button>
+          </AnimatePresence>
 
         {/* Support Chat Window */}
         <AnimatePresence>
@@ -1141,10 +1188,10 @@ export default function App() {
               initial={{ opacity: 0, y: 20, scale: 0.95, transformOrigin: 'bottom right' }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.95 }}
-              className={`fixed bottom-28 right-10 w-80 h-[450px] ${theme === 'dark' ? 'glass-dark' : 'glass'} squircle shadow-2xl z-[60] flex flex-col overflow-hidden border border-white/20`}
+              className={`fixed bottom-10 right-10 w-80 h-[450px] ${theme === 'dark' ? 'glass-dark' : 'glass'} squircle shadow-2xl z-[60] flex flex-col overflow-hidden border border-white/20`}
             >
               <div className="p-4 bg-gradient-to-r from-pink-500 to-purple-600 text-white flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pl-2">
                   <Sparkles size={18} />
                   <span className="font-bold text-sm">{t.supportTitle}</span>
                 </div>
@@ -1225,7 +1272,7 @@ export default function App() {
                     <p className="text-xs font-medium animate-pulse">{t.aiThinking}</p>
                   </div>
                 ) : (
-                  <div className={`text-sm leading-relaxed ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}>
+                  <div className={`text-sm leading-relaxed whitespace-pre-wrap ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}>
                     {aiAssistantMessage}
                   </div>
                 )}
@@ -1274,46 +1321,132 @@ export default function App() {
                     <X size={24} />
                   </button>
                 </div>
+                {/* Consumer Portal Request Modal */}
+                <AnimatePresence>
+                  {showConvertModal && (
+                    <motion.div 
+                      initial={{ opacity: 0 }} 
+                      animate={{ opacity: 1 }} 
+                      exit={{ opacity: 0 }} 
+                      className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+                      onClick={() => setShowConvertModal(false)} // 👈 点击遮罩层关闭
+                    >
+                      <motion.div 
+                        initial={{ scale: 0.9, opacity: 0, y: 20 }} 
+                        animate={{ scale: 1, opacity: 1, y: 0 }} 
+                        exit={{ scale: 0.9, opacity: 0, y: 20 }} 
+                        transition={{ type: "spring", stiffness: 300, damping: 25 }} // 👈 更平滑的动画
+                        onClick={(e) => e.stopPropagation()} // 👈 阻止点击内部时触发遮罩关闭
+                        // 👇 将宽度从 max-w-md 提升到 max-w-lg (增加约 20-30% 呼吸感)
+                        className={`${theme === 'dark' ? 'glass-dark' : 'glass'} w-full max-w-lg squircle p-8 md:p-10 shadow-2xl relative border border-white/20`}
+                      >
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 blur-3xl rounded-full -mr-32 -mt-32 pointer-events-none" />
+                        
+                        <div className="flex justify-between items-center mb-8 relative z-10">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/30 glow-emerald">
+                              <User className="text-white" size={24} />
+                            </div>
+                            <div>
+                              <h2 className="text-2xl font-bold">Consumer Request</h2>
+                              <p className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} uppercase tracking-widest`}>Validated e-Invoice Portal</p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => setShowConvertModal(false)} // 👈 右上角 X 关闭图标
+                            className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-slate-900/5'} transition-colors`}
+                          >
+                            <X size={24} />
+                          </button>
+                        </div>
+                        
+                        {/* 增加 space-y-6 让输入框不拥挤 */}
+                        <div className="space-y-6 relative z-10">
+                          <div>
+                            <label className="block text-xs font-bold mb-2 uppercase tracking-wider">Company / Name</label>
+                            <input 
+                              type="text" 
+                              value={buyerDetails.name} 
+                              onChange={(e) => setBuyerDetails({...buyerDetails, name: e.target.value})} 
+                              className={`w-full p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-900/5 border-slate-900/10'} border focus:outline-none focus:border-pink-500/50 transition-colors`} 
+                              placeholder="e.g. Ali Bin Ahmad"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold mb-2 uppercase tracking-wider">Tax Identification Number (TIN)</label>
+                            <input 
+                              type="text" 
+                              value={buyerDetails.tin} 
+                              onChange={(e) => {
+                                setBuyerDetails({...buyerDetails, tin: e.target.value});
+                                setFormErrors({...formErrors, tin: ""}); // 输入时清除错误
+                              }} 
+                              className={`w-full p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-900/5 border-slate-900/10'} border ${formErrors.tin ? 'border-rose-500 focus:border-rose-500' : 'focus:border-pink-500/50'} transition-colors`} 
+                              placeholder="e.g. IG1234567890"
+                            />
+                            {/* 👇 Validation 错误提示 */}
+                            {formErrors.tin && <p className="text-rose-500 text-[10px] font-bold mt-2 ml-1 animate-pulse">{formErrors.tin}</p>}
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold mb-2 uppercase tracking-wider">IC Number (NRIC)</label>
+                            <input 
+                              type="text" 
+                              value={buyerDetails.ic} 
+                              onChange={(e) => {
+                                setBuyerDetails({...buyerDetails, ic: e.target.value});
+                                setFormErrors({...formErrors, ic: ""});
+                              }} 
+                              className={`w-full p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-900/5 border-slate-900/10'} border ${formErrors.ic ? 'border-rose-500 focus:border-rose-500' : 'focus:border-pink-500/50'} transition-colors`} 
+                              placeholder="e.g. 050101-14-5555"
+                            />
+                            {/* 👇 Validation 错误提示 */}
+                            {formErrors.ic && <p className="text-rose-500 text-[10px] font-bold mt-2 ml-1 animate-pulse">{formErrors.ic}</p>}
+                          </div>
+                        </div>
 
-                <div className="space-y-4 relative z-10">
-                  <div>
-                    <label className={`block text-xs font-bold mb-2 uppercase tracking-wider ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>{t.buyerName}</label>
-                    <input 
-                      type="text"
-                      value={buyerDetails.name}
-                      onChange={(e) => setBuyerDetails({...buyerDetails, name: e.target.value})}
-                      placeholder="e.g. Syarikat Maju Jaya Sdn Bhd"
-                      className={`w-full p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-900/5'} border border-white/10 focus:outline-none focus:border-emerald-500/50 transition-colors`}
-                    />
-                  </div>
-                  <div>
-                    <label className={`block text-xs font-bold mb-2 uppercase tracking-wider ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>{t.buyerTin}</label>
-                    <input 
-                      type="text"
-                      value={buyerDetails.tin}
-                      onChange={(e) => setBuyerDetails({...buyerDetails, tin: e.target.value})}
-                      placeholder="e.g. C1234567890"
-                      className={`w-full p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-900/5'} border border-white/10 focus:outline-none focus:border-emerald-500/50 transition-colors`}
-                    />
-                  </div>
-                </div>
+                        <div className="mt-10 flex justify-center relative z-10">
+                          <button 
+                            onClick={handleConsumerSubmit} 
+                            // 👇 改用品牌主色调，宽度占 3/4 并在中央，提升视觉焦点
+                            className="w-full md:w-3/4 py-4 bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold rounded-2xl shadow-lg hover:shadow-pink-500/30 transition-all active:scale-[0.98] glow-pink"
+                          >
+                            Submit Request to LHDN
+                          </button>
+                        </div>
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
-                <div className="mt-8 flex justify-end relative z-10">
-                  <button 
-                    onClick={handleConvert}
-                    className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl shadow-lg hover:shadow-emerald-500/30 transition-all active:scale-[0.98] glow-emerald"
-                  >
-                    {t.update}
-                  </button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
-    </div>
-  );
-}
+                                <div className="mt-8 flex justify-end relative z-10">
+                                  <button 
+                                    onClick={handleConvert}
+                                    className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl shadow-lg hover:shadow-emerald-500/30 transition-all active:scale-[0.98] glow-emerald"
+                                  >
+                                    {t.update}
+                                  </button>
+                                </div>
+                              </motion.div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        {/* Toast 系統提示 UI */}
+                        <AnimatePresence>
+                          {toastMessage && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 50 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: 50 }}
+                              className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-2xl border border-white/20 max-w-lg text-center"
+                            >
+                              {toastMessage}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </main> 
+                    </div>
+                  );
+                }
 
 function NavItem({ icon, label, active = false, onClick, collapsed = false, theme = 'light' }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void, collapsed?: boolean, theme?: string }) {
   return (
@@ -1335,4 +1468,3 @@ function NavItem({ icon, label, active = false, onClick, collapsed = false, them
     </div>
   );
 }
-
