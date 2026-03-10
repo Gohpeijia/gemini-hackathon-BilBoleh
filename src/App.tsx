@@ -41,8 +41,9 @@ import { GoogleGenAI } from "@google/genai";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from 'firebase/auth';
 import { auth } from './firebase';
 import AuthPage from './components/AuthPage';
-import { collection, query, orderBy, onSnapshot, addDoc, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, doc, updateDoc, serverTimestamp, Timestamp, where } from 'firebase/firestore'; 
 import { db } from './firebase'; 
+
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
@@ -110,28 +111,38 @@ export default function App() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [currentInvoiceId, setCurrentInvoiceId] = useState<string | null>(null);
 
-  // 🔴 REAL-TIME FIRESTORE LISTENER
-  useEffect(() => {
-    if (!user) return;
-    
-    // Listen to the 'invoices' collection, sorted by newest first
-    const q = query(collection(db, "invoices"), orderBy("dateTimestamp", "desc"));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const invoiceData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        // Convert Firebase timestamp to readable date
-        date: doc.data().dateTimestamp?.toDate().toLocaleString('en-MY', { 
-          year: 'numeric', month: '2-digit', day: '2-digit', 
-          hour: '2-digit', minute: '2-digit' 
-        }) || 'Just now'
-      }));
-      setInvoices(invoiceData);
-    });
+// 🔴 完美隔离版 FIRESTORE LISTENER (前端排序，避开索引报错)
+    useEffect(() => {
+      if (!user?.uid) return;
+      
+      // 只保留 where，精准抓取当前账号的数据
+      const q = query(
+        collection(db, "invoices"), 
+        where("userId", "==", user.uid)
+      );
+      
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const invoiceData = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            _timestamp: data.dateTimestamp?.toMillis() || 0, // 隐藏的时间戳，用来排序
+            date: data.dateTimestamp?.toDate().toLocaleString('en-MY', { 
+              year: 'numeric', month: '2-digit', day: '2-digit', 
+              hour: '2-digit', minute: '2-digit' 
+            }) || 'Just now'
+          };
+        });
 
-    return () => unsubscribe();
-  }, [user]);
+        // 前端自己按时间降序排列（最新的在最上面），完美避开 Firebase 报错！
+        invoiceData.sort((a, b) => b._timestamp - a._timestamp);
+        
+        setInvoices(invoiceData);
+      });
+
+      return () => unsubscribe();
+    }, [user]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -328,9 +339,9 @@ export default function App() {
   const t = translations[language];
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setIsAuthLoading(false);
+      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser); 
+      setIsAuthLoading(false); 
     });
     return () => unsubscribe();
   }, []);
@@ -354,11 +365,18 @@ export default function App() {
     }
   }, [supportMessages]);
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (err) {
-      console.error("Logout error:", err);
+const handleLogout = async () => {
+    try { 
+      await signOut(auth); 
+      setInvoices([]); 
+      setExtractedData(null);
+      setCurrentInvoiceId(null);
+      setPreview(null);
+      setFile(null);
+      setBuyerDetails({ name: "", tin: "", ic: "" });
+      setActiveTab('process'); 
+    } catch (err) { 
+      console.error("Logout error:", err); 
     }
   };
 
@@ -638,6 +656,10 @@ const getAiAssistance = async () => {
   // ⚡ 1. Save extracted AI data to Firebase as "Pending"
   const saveInvoiceToDatabase = async (data: InvoiceData) => {
     try {
+      // 1. 尝试获取名称，如果都没有，就叫 "User_[ID后四位]"
+      const displayIdentifier = user?.displayName || 
+                                user?.email?.split('@')[0] || 
+                                `User_${user?.uid?.slice(-4)}`;
       const docRef = await addDoc(collection(db, "invoices"), {
         invNo: data.invoiceNumber || `INV-${Math.floor(Math.random() * 10000)}`,
         customer: data.buyer.name || "Unknown Customer",
@@ -646,15 +668,19 @@ const getAiAssistance = async () => {
         uin: "", 
         status: "Pending",
         lhdnPayload: data,
+        userId: user?.uid,
+        userName: displayIdentifier,
         dateTimestamp: serverTimestamp(),
-        userId: user?.uid
       });
       setCurrentInvoiceId(docRef.id);
       setToastMessage("💾 Draft saved to database!");
       setTimeout(() => setToastMessage(null), 3000);
+      console.log("💾 Invoice saved for:", displayIdentifier);
     } catch (e) {
       console.error("Error saving document: ", e);
+      console.error("Save error:", e);
     }
+    
   };
 
   // ⚡ 2. Merchant Auto-Sync: Send to FastAPI & Update LHDN Status
